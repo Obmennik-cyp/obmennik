@@ -1,35 +1,48 @@
 import { NextResponse } from "next/server";
-
-// временное хранилище (живёт пока сервер запущен)
-const users: any[] = [];
+import { prisma } from "@/lib/prisma";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const newUser = {
-      id: Date.now(),
-      email: body.email,
-      phone: body.phone,
-      password: body.password,
-    };
+    const existingUser = await prisma.user.findUnique({
+      where: {
+        email: body.email,
+      },
+    });
 
-    users.push(newUser);
+    if (existingUser) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Пользователь с таким email уже существует",
+        },
+        { status: 400 }
+      );
+    }
 
-    console.log("ВСЕ ПОЛЬЗОВАТЕЛИ:", users);
+    const newUser = await prisma.user.create({
+      data: {
+        email: body.email,
+        phone: body.phone,
+        password: body.password,
+      },
+    });
 
     return NextResponse.json({
       success: true,
-      message: "Пользователь сохранён",
+      message: "Пользователь сохранён в базе",
       user: newUser,
     });
   } catch (error) {
+    console.error("REGISTER ERROR:", error);
+
     return NextResponse.json(
       {
         success: false,
-        message: "Ошибка",
+        message: "Ошибка сервера",
       },
-      { status: 400 }
+      { status: 500 }
     );
   }
 }
