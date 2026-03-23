@@ -9,7 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@prisma/client": "^7.5.0",
+    "autoprefixer": "^10.4.27",
     "next": "16.1.7",
+    "postcss": "^8.5.8",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
@@ -20,7 +23,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.7",
-    "tailwindcss": "^4",
+    "tailwindcss": "^4.2.2",
     "typescript": "^5"
   }
 }

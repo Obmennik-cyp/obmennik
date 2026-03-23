@@ -4,6 +4,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -11,4 +12,20 @@ model User {
   email    String @unique
   phone    String
   password String
+  orders Order[]
+}
+model Order {
+  id              Int      @id @default(autoincrement())
+  orderNumber     String   @unique
+  userId          Int
+  giveCurrency    String
+  receiveCurrency String
+  giveAmount      Float
+  receiveAmount   Float
+  rate            Float
+  feePercent      Float
+  status          String   @default("pending")
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
 }

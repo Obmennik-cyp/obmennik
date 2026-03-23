@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 export default function Home() {
@@ -118,12 +119,19 @@ export default function Home() {
               RU | EN | TR
             </div>
 
-            <a
-              href="/register"
+            <Link
+              href="/login"
               className="rounded-xl bg-white/10 px-4 py-2 text-sm font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-white/20"
             >
               Войти
-            </a>
+            </Link>
+
+            <Link
+              href="/register"
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-blue-500"
+            >
+              Регистрация
+            </Link>
           </div>
         </div>
       </header>
@@ -146,16 +154,19 @@ export default function Home() {
           </p>
 
           <div className="flex flex-col gap-4 sm:flex-row">
-            <a
+            <Link
               href="/register"
               className="rounded-2xl bg-blue-600 px-6 py-3 text-center text-lg font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-blue-500 active:scale-[0.98]"
             >
               Создать заявку
-            </a>
+            </Link>
 
-            <button className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 text-lg font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-white/10 active:scale-[0.98]">
-              Связаться в Telegram
-            </button>
+            <Link
+              href="/login"
+              className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 text-center text-lg font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-white/10 active:scale-[0.98]"
+            >
+              Войти в кабинет
+            </Link>
           </div>
         </div>
 
@@ -242,12 +253,12 @@ export default function Home() {
               </div>
             </div>
 
-            <a
+            <Link
               href="/register"
               className="block w-full rounded-2xl bg-blue-600 px-6 py-3 text-center text-lg font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-blue-500 active:scale-[0.98]"
             >
               Создать заявку
-            </a>
+            </Link>
 
             <p className="text-xs leading-5 text-gray-500">
               Расчёт является предварительным. Финальные условия подтверждаются
