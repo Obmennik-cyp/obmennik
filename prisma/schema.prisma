@@ -8,11 +8,15 @@ datasource db {
 }
 
 model User {
-  id       Int    @id @default(autoincrement())
-  email    String @unique
-  phone    String
-  password String
-  orders Order[]
+  id          Int      @id @default(autoincrement())
+  email       String   @unique
+  phone       String
+  password    String
+
+  role        String   @default("employee")
+  permissions String   @default("[]")
+
+  orders      Order[]
 }
 model Order {
   id              Int      @id @default(autoincrement())
@@ -28,4 +32,15 @@ model Order {
   createdAt       DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
+}
+model ExchangeRate {
+  id              Int      @id @default(autoincrement())
+  giveCurrency    String
+  receiveCurrency String
+  rate            Float
+  feePercent      Float
+  isActive        Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+
+  @@unique([giveCurrency, receiveCurrency])
 }

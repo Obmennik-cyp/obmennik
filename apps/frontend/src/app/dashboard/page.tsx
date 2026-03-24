@@ -6,6 +6,8 @@ type User = {
   id?: number;
   email: string;
   phone: string;
+  role?: string;
+  permissions?: string[];
 };
 
 type Order = {
@@ -19,6 +21,15 @@ type Order = {
   feePercent: number;
   status: string;
   createdAt: string;
+};
+
+type RateItem = {
+  id?: number;
+  giveCurrency: string;
+  receiveCurrency: string;
+  rate: number;
+  feePercent: number;
+  isActive: boolean;
 };
 
 type OrderForm = {
@@ -37,13 +48,35 @@ const statusLabels: Record<string, string> = {
   canceled: "Отменена",
 };
 
-const directions = [
-  { giveCurrency: "USDT", receiveCurrency: "TRY", rate: 36.4, feePercent: 1.5 },
-  { giveCurrency: "BTC", receiveCurrency: "USDT", rate: 84250, feePercent: 1.2 },
-  { giveCurrency: "ETH", receiveCurrency: "USDT", rate: 4200, feePercent: 1.2 },
+const fallbackDirections: RateItem[] = [
+  {
+    giveCurrency: "USDT",
+    receiveCurrency: "TRY",
+    rate: 36.4,
+    feePercent: 1.5,
+    isActive: true,
+  },
+  {
+    giveCurrency: "BTC",
+    receiveCurrency: "USDT",
+    rate: 84250,
+    feePercent: 1.2,
+    isActive: true,
+  },
+  {
+    giveCurrency: "ETH",
+    receiveCurrency: "USDT",
+    rate: 4200,
+    feePercent: 1.2,
+    isActive: true,
+  },
 ];
 
-const getDirectionConfig = (giveCurrency: string, receiveCurrency: string) => {
+const getDirectionConfig = (
+  directions: RateItem[],
+  giveCurrency: string,
+  receiveCurrency: string
+) => {
   return (
     directions.find(
       (item) =>
@@ -58,8 +91,11 @@ export default function DashboardPage() {
     id: 1,
     email: "example@gmail.com",
     phone: "+905000000000",
+    role: "employee",
+    permissions: [],
   });
 
+  const [directions, setDirections] = useState<RateItem[]>(fallbackDirections);
   const [orders, setOrders] = useState<Order[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -104,11 +140,16 @@ export default function DashboardPage() {
   };
 
   const buildNewForm = (
+    currentDirections: RateItem[],
     giveCurrency = "USDT",
     receiveCurrency = "TRY",
     giveAmount = "100"
   ): OrderForm => {
-    const direction = getDirectionConfig(giveCurrency, receiveCurrency);
+    const direction = getDirectionConfig(
+      currentDirections,
+      giveCurrency,
+      receiveCurrency
+    );
 
     return {
       giveCurrency: direction.giveCurrency,
@@ -147,6 +188,39 @@ export default function DashboardPage() {
     }
   };
 
+  const loadRates = async () => {
+    try {
+      const res = await fetch("/api/rates");
+      const data = await res.json();
+
+      if (data.success && data.rates.length > 0) {
+        setDirections(data.rates);
+        setOrderForm((prev) => {
+          const direction = getDirectionConfig(
+            data.rates,
+            prev.giveCurrency,
+            prev.receiveCurrency
+          );
+
+          return {
+            ...prev,
+            giveCurrency: direction.giveCurrency,
+            receiveCurrency: direction.receiveCurrency,
+            rate: direction.rate,
+            feePercent: direction.feePercent,
+            receiveAmount: recalcFromGive(
+              prev.giveAmount,
+              direction.rate,
+              direction.feePercent
+            ),
+          };
+        });
+      }
+    } catch (error) {
+      console.error("LOAD RATES ERROR:", error);
+    }
+  };
+
   const loadOrders = async (currentUserId: number) => {
     try {
       const res = await fetch(`/api/order?userId=${currentUserId}`);
@@ -160,7 +234,7 @@ export default function DashboardPage() {
       if (loadedOrders.length === 0) {
         setSelectedOrderId(null);
         if (!isCreating) {
-          setOrderForm(buildNewForm());
+          setOrderForm(buildNewForm(directions));
         }
         return;
       }
@@ -183,6 +257,8 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    loadRates();
+
     const savedUser = localStorage.getItem("user");
 
     if (savedUser) {
@@ -193,6 +269,8 @@ export default function DashboardPage() {
           id: parsedUser.id ?? 1,
           email: parsedUser.email ?? "example@gmail.com",
           phone: parsedUser.phone ?? "+905000000000",
+          role: parsedUser.role ?? "employee",
+          permissions: parsedUser.permissions ?? [],
         };
 
         setUser(currentUser);
@@ -201,7 +279,7 @@ export default function DashboardPage() {
         console.error("Ошибка чтения пользователя:", error);
       }
     } else {
-      setOrderForm(buildNewForm());
+      setOrderForm(buildNewForm(directions));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -210,7 +288,7 @@ export default function DashboardPage() {
     setIsCreating(true);
     setSelectedOrderId(null);
     setLastEdited("give");
-    setOrderForm(buildNewForm());
+    setOrderForm(buildNewForm(directions));
   };
 
   const handleSelectOrder = (order: Order) => {
@@ -301,7 +379,7 @@ export default function DashboardPage() {
         } else {
           setIsCreating(true);
           setSelectedOrderId(null);
-          setOrderForm(buildNewForm());
+          setOrderForm(buildNewForm(directions));
         }
       }
 
@@ -422,6 +500,12 @@ export default function DashboardPage() {
             <p>
               Телефон: <span className="font-medium">{user.phone}</span>
             </p>
+            <p>
+              Роль:{" "}
+              <span className="font-medium">
+                {user.role === "owner" ? "Владелец" : "Работник"}
+              </span>
+            </p>
           </div>
 
           <p className="mt-6 text-xl text-green-400">
@@ -432,12 +516,32 @@ export default function DashboardPage() {
         <div className="mb-8 rounded-3xl border border-white/10 bg-[#0b1628] p-8">
           <h2 className="mb-6 text-3xl font-semibold">Действия</h2>
 
-          <button
-            onClick={handleNewOrder}
-            className="rounded-2xl bg-blue-600 px-8 py-4 text-lg font-medium transition hover:bg-blue-700"
-          >
-            Новая заявка
-          </button>
+          <div className="flex flex-wrap gap-4">
+            <button
+              onClick={handleNewOrder}
+              className="rounded-2xl bg-blue-600 px-8 py-4 text-lg font-medium transition hover:bg-blue-700"
+            >
+              Новая заявка
+            </button>
+
+            {user.role === "owner" && (
+              <>
+                <a
+                  href="/admin"
+                  className="inline-block rounded-2xl border border-white/10 bg-white/5 px-8 py-4 text-lg font-medium transition hover:bg-white/10"
+                >
+                  Админка
+                </a>
+
+                <a
+                  href="/admin/rates"
+                  className="inline-block rounded-2xl border border-white/10 bg-white/5 px-8 py-4 text-lg font-medium transition hover:bg-white/10"
+                >
+                  Курсы и комиссии
+                </a>
+              </>
+            )}
+          </div>
         </div>
 
         <div className="grid gap-8 md:grid-cols-2">

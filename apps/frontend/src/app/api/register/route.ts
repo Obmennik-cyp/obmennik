@@ -5,6 +5,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
+    // Проверка существующего пользователя
     const existingUser = await prisma.user.findUnique({
       where: {
         email: body.email,
@@ -21,11 +22,31 @@ export async function POST(req: Request) {
       );
     }
 
+    // Проверяем сколько пользователей в базе
+    const usersCount = await prisma.user.count();
+    const isFirstUser = usersCount === 0;
+
+    // Создание пользователя
     const newUser = await prisma.user.create({
       data: {
         email: body.email,
         phone: body.phone,
         password: body.password,
+
+        role: isFirstUser ? "owner" : "employee",
+
+        permissions: isFirstUser
+          ? JSON.stringify([
+              "manage_orders",
+              "change_status",
+              "delete_orders",
+              "send_messages",
+              "post_to_telegram",
+              "manage_rates",
+              "manage_fees",
+              "manage_staff",
+            ])
+          : JSON.stringify([]),
       },
     });
 

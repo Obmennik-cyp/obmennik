@@ -38,19 +38,28 @@ async function generateOrderNumber() {
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const userId = Number(searchParams.get("userId"));
+    const userId = searchParams.get("userId");
+    const all = searchParams.get("all");
 
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, message: "Не передан userId" },
-        { status: 400 }
-      );
+    let orders;
+
+    if (all === "true") {
+      orders = await prisma.order.findMany({
+        orderBy: { createdAt: "desc" },
+      });
+    } else {
+      if (!userId) {
+        return NextResponse.json(
+          { success: false, message: "Не передан userId" },
+          { status: 400 }
+        );
+      }
+
+      orders = await prisma.order.findMany({
+        where: { userId: Number(userId) },
+        orderBy: { createdAt: "desc" },
+      });
     }
-
-    const orders = await prisma.order.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-    });
 
     return NextResponse.json({ success: true, orders });
   } catch (error) {
@@ -62,7 +71,6 @@ export async function GET(req: Request) {
     );
   }
 }
-
 export async function POST(req: Request) {
   try {
     const body = await req.json();
