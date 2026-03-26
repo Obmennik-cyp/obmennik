@@ -79,6 +79,8 @@ export default function Home() {
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [amount, setAmount] = useState("1000");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
 
   const selectedDirection = directionOptions[selectedIndex];
   const amountNumber = Number(amount) || 0;
@@ -92,6 +94,50 @@ export default function Home() {
   const formattedReceiveAmount = new Intl.NumberFormat("ru-RU", {
     maximumFractionDigits: 2,
   }).format(receiveAmount);
+
+  async function handleCreateOrder() {
+    if (amountNumber <= 0) {
+      setMessage("Введите корректную сумму");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setMessage("");
+
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: 1,
+          giveCurrency: selectedDirection.fromCurrency,
+          receiveCurrency: selectedDirection.toCurrency,
+          giveAmount: amountNumber,
+          receiveAmount,
+          rate: selectedDirection.rate,
+          feePercent: selectedDirection.feePercent,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Ошибка создания заявки");
+      }
+
+      setMessage(`Заявка создана: ${data.order.orderNumber}`);
+    } catch (error) {
+      if (error instanceof Error) {
+        setMessage(error.message);
+      } else {
+        setMessage("Произошла ошибка");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[#0b0f1a] text-white">
@@ -219,7 +265,10 @@ export default function Home() {
             </div>
 
             <div>
-              <label htmlFor="amount" className="mb-2 block text-sm text-gray-400">
+              <label
+                htmlFor="amount"
+                className="mb-2 block text-sm text-gray-400"
+              >
                 Сумма
               </label>
               <input
@@ -253,12 +302,16 @@ export default function Home() {
               </div>
             </div>
 
-            <Link
-              href="/register"
-              className="block w-full rounded-2xl bg-blue-600 px-6 py-3 text-center text-lg font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-blue-500 active:scale-[0.98]"
+            <button
+              type="button"
+              onClick={handleCreateOrder}
+              disabled={isSubmitting || amountNumber <= 0}
+              className="block w-full rounded-2xl bg-blue-600 px-6 py-3 text-center text-lg font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-blue-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Создать заявку
-            </Link>
+              {isSubmitting ? "Создание заявки..." : "Создать заявку"}
+            </button>
+
+            {message && <p className="text-sm text-gray-300">{message}</p>}
 
             <p className="text-xs leading-5 text-gray-500">
               Расчёт является предварительным. Финальные условия подтверждаются
@@ -270,7 +323,9 @@ export default function Home() {
 
       <section className="mx-auto max-w-7xl px-6 py-8 md:py-14">
         <div className="mb-8">
-          <h2 className="text-3xl font-bold md:text-4xl">Преимущества сервиса</h2>
+          <h2 className="text-3xl font-bold md:text-4xl">
+            Преимущества сервиса
+          </h2>
           <p className="mt-3 max-w-2xl text-gray-400">
             Всё, что нужно небольшому обменному сервису: удобный интерфейс,
             понятный процесс, безопасная работа через личный кабинет и гибкая
@@ -295,7 +350,9 @@ export default function Home() {
       <section className="mx-auto max-w-7xl px-6 py-8 md:py-14">
         <div className="grid gap-8 md:grid-cols-2">
           <div className="rounded-3xl border border-white/10 bg-[#121821] p-6 md:p-8">
-            <h2 className="mb-4 text-3xl font-bold md:text-4xl">Как это работает</h2>
+            <h2 className="mb-4 text-3xl font-bold md:text-4xl">
+              Как это работает
+            </h2>
             <p className="mb-8 max-w-xl text-gray-400">
               Простой путь от расчёта до обработки заявки без перегруженного
               интерфейса и с понятной логикой на каждом этапе.
@@ -321,8 +378,8 @@ export default function Home() {
               Популярные направления
             </h2>
             <p className="mb-8 max-w-xl text-gray-400">
-              Наиболее востребованные пары обмена, которые можно быстро настроить
-              и масштабировать под конкретного клиента.
+              Наиболее востребованные пары обмена, которые можно быстро
+              настроить и масштабировать под конкретного клиента.
             </p>
 
             <div className="grid gap-3 sm:grid-cols-2">
@@ -388,9 +445,7 @@ export default function Home() {
       </section>
 
       <section className="mx-auto max-w-7xl px-6 py-10 md:py-16">
-        <h2 className="mb-8 text-3xl font-bold md:text-4xl">
-          Частые вопросы
-        </h2>
+        <h2 className="mb-8 text-3xl font-bold md:text-4xl">Частые вопросы</h2>
 
         <div className="space-y-4">
           {[

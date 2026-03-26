@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
@@ -8,15 +8,22 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const [message, setMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setLoading(true);
-    setMessage("");
+
+    if (!email || !password) {
+      setMessage("Заполните все поля");
+      return;
+    }
 
     try {
+      setIsLoading(true);
+      setMessage("");
+
       const res = await fetch("/api/login", {
         method: "POST",
         headers: {
@@ -30,32 +37,33 @@ export default function LoginPage() {
 
       const data = await res.json();
 
-      if (data.success) {
-        localStorage.setItem("user", JSON.stringify(data.user));
-        router.push("/dashboard");
-      } else {
+      if (!data.success) {
         setMessage(data.message || "Ошибка входа");
+        return;
       }
+
+      localStorage.setItem("user", JSON.stringify(data.user));
+      router.push("/dashboard");
     } catch (error) {
-      console.error("LOGIN REQUEST ERROR:", error);
+      console.error("LOGIN PAGE ERROR:", error);
       setMessage("Ошибка сервера");
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
   return (
-    <main className="min-h-screen bg-[#020b22] flex items-center justify-center px-4">
-      <div className="w-full max-w-md bg-[#0b1628] border border-white/10 rounded-3xl p-8 shadow-2xl">
-        <h1 className="text-white text-4xl font-bold text-center mb-8">Вход</h1>
+    <main className="flex min-h-screen items-center justify-center bg-[#0b0f1a] px-4 text-white">
+      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#121821] p-8 shadow-2xl">
+        <h1 className="mb-6 text-center text-2xl font-bold">Вход</h1>
 
-        <form onSubmit={handleLogin} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <input
             type="email"
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-2xl bg-white/10 border border-white/10 text-white px-4 py-4 outline-none"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-gray-500 outline-none focus:border-blue-500/40"
             required
           />
 
@@ -64,24 +72,34 @@ export default function LoginPage() {
             placeholder="Пароль"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-2xl bg-white/10 border border-white/10 text-white px-4 py-4 outline-none"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-gray-500 outline-none focus:border-blue-500/40"
             required
           />
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 transition rounded-2xl py-4 text-white font-medium disabled:opacity-50"
+            disabled={isLoading}
+            className="w-full rounded-xl bg-blue-600 py-3 font-medium transition-all duration-300 hover:scale-[1.02] hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {loading ? "Входим..." : "Войти"}
+            {isLoading ? "Вход..." : "Войти"}
           </button>
-        </form>
 
-        {message && (
-          <div className="mt-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3">
-            {message}
-          </div>
-        )}
+          {message && (
+            <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              {message}
+            </div>
+          )}
+
+          <p className="text-center text-sm text-gray-400">
+            Нет аккаунта?{" "}
+            <span
+              onClick={() => router.push("/register")}
+              className="cursor-pointer text-blue-400 hover:underline"
+            >
+              Зарегистрироваться
+            </span>
+          </p>
+        </form>
       </div>
     </main>
   );

@@ -9,11 +9,19 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
+    if (password !== confirmPassword) {
+      setMessage("Пароли не совпадают");
+      return;
+    }
+
     setMessage("");
     setIsLoading(true);
 
@@ -34,7 +42,12 @@ export default function RegisterPage() {
 
       if (data.success) {
         localStorage.setItem("user", JSON.stringify(data.user));
-        router.push("/dashboard");
+
+        setMessage("Регистрация успешна! Перенаправление...");
+
+        setTimeout(() => {
+          router.push("/dashboard");
+        }, 1500);
       } else {
         setMessage(data.message || "Ошибка регистрации");
       }
@@ -78,22 +91,37 @@ export default function RegisterPage() {
             required
           />
 
+          <input
+            type="password"
+            placeholder="Повторите пароль"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-gray-500 outline-none focus:border-blue-500/40"
+            required
+          />
+
           <button
             type="submit"
             disabled={isLoading}
             className="w-full rounded-xl bg-blue-600 py-3 font-medium transition-all duration-300 hover:scale-[1.02] hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {isLoading ? "Отправка..." : "Зарегистрироваться"}
+            {isLoading ? "Регистрация..." : "Зарегистрироваться"}
           </button>
 
           {message && (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-gray-300">
               {message}
             </div>
           )}
 
           <p className="text-center text-xs text-gray-500">
-            Продолжая, вы соглашаетесь с условиями сервиса
+            Уже есть аккаунт?{" "}
+            <span
+              onClick={() => router.push("/login")}
+              className="cursor-pointer text-blue-400 hover:underline"
+            >
+              Войти
+            </span>
           </p>
         </form>
       </div>

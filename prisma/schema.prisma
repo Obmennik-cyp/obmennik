@@ -7,32 +7,56 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id          Int      @id @default(autoincrement())
-  email       String   @unique
-  phone       String
-  password    String
-
-  role        String   @default("employee")
-  permissions String   @default("[]")
-
-  orders      Order[]
+enum OrderStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
 }
+
+model User {
+  id       Int    @id @default(autoincrement())
+  email    String @unique
+  phone    String
+  password String
+
+  role        String @default("employee")
+  permissions String @default("[]")
+
+  orders         Order[] @relation("ClientOrders")
+  assignedOrders Order[] @relation("EmployeeAssignedOrders")
+}
+
 model Order {
-  id              Int      @id @default(autoincrement())
-  orderNumber     String   @unique
-  userId          Int
+  id          Int    @id @default(autoincrement())
+  orderNumber String @unique
+
+  userId     Int
+  employeeId Int?
+
   giveCurrency    String
   receiveCurrency String
-  giveAmount      Float
-  receiveAmount   Float
-  rate            Float
-  feePercent      Float
-  status          String   @default("pending")
-  createdAt       DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id])
+  giveAmount    Float
+  receiveAmount Float
+  rate          Float
+  feePercent    Float @default(0)
+
+  status  OrderStatus @default(PENDING)
+  comment String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User  @relation("ClientOrders", fields: [userId], references: [id])
+  employee User? @relation("EmployeeAssignedOrders", fields: [employeeId], references: [id])
+
+  @@index([userId])
+  @@index([employeeId])
+  @@index([status])
+  @@index([createdAt])
 }
+
 model ExchangeRate {
   id              Int      @id @default(autoincrement())
   giveCurrency    String
