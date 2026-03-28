@@ -14,6 +14,13 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum TelegramMessageStatus {
+  DRAFT
+  SCHEDULED
+  SENT
+  FAILED
+}
+
 model User {
   id       Int    @id @default(autoincrement())
   email    String @unique
@@ -23,8 +30,13 @@ model User {
   role        String @default("employee")
   permissions String @default("[]")
 
-  orders         Order[] @relation("ClientOrders")
-  assignedOrders Order[] @relation("EmployeeAssignedOrders")
+  orders                Order[]            @relation("ClientOrders")
+  assignedOrders        Order[]            @relation("EmployeeAssignedOrders")
+  telegramTemplates     TelegramTemplate[]
+  telegramMessages      TelegramMessage[]
+
+  @@index([email])
+  @@index([role])
 }
 
 model Order {
@@ -67,4 +79,48 @@ model ExchangeRate {
   updatedAt       DateTime @updatedAt
 
   @@unique([giveCurrency, receiveCurrency])
+}
+
+model TelegramTemplate {
+  id          Int      @id @default(autoincrement())
+  title       String
+  content     String
+  authorId    Int
+  isActive    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  author      User     @relation(fields: [authorId], references: [id])
+  messages    TelegramMessage[]
+
+  @@index([authorId])
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+model TelegramMessage {
+  id               Int                   @id @default(autoincrement())
+  title            String?
+  content          String
+  status           TelegramMessageStatus @default(DRAFT)
+
+  authorId         Int
+  templateId       Int?
+
+  scheduledFor     DateTime?
+  sentAt           DateTime?
+  errorMessage     String?
+
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  author           User                  @relation(fields: [authorId], references: [id])
+  template         TelegramTemplate?     @relation(fields: [templateId], references: [id])
+
+  @@index([authorId])
+  @@index([templateId])
+  @@index([status])
+  @@index([scheduledFor])
+  @@index([createdAt])
 }
