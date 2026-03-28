@@ -1,7 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+type DirectionOption = {
+  fromCurrency: string;
+  fromNetwork: string;
+  toCurrency: string;
+  rate: number;
+  feePercent: number;
+};
+
+type LocalUser = {
+  id: number;
+  email: string;
+  phone: string;
+  role: "owner" | "employee" | "client";
+  permissions?: string[] | string;
+};
 
 export default function Home() {
   const advantages = [
@@ -39,7 +55,7 @@ export default function Home() {
     "TRY → USDT",
   ];
 
-  const directionOptions = [
+  const directionOptions: DirectionOption[] = [
     {
       fromCurrency: "USDT",
       fromNetwork: "TRC20",
@@ -75,12 +91,44 @@ export default function Home() {
       rate: 1.27,
       feePercent: 1.1,
     },
+    {
+      fromCurrency: "TRY",
+      fromNetwork: "Bank",
+      toCurrency: "USDT",
+      rate: 0.027,
+      feePercent: 1.3,
+    },
   ];
 
+  const [user, setUser] = useState<LocalUser | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [amount, setAmount] = useState("1000");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    try {
+      const storedUser = localStorage.getItem("user");
+
+      if (!storedUser) {
+        setUser(null);
+        return;
+      }
+
+      const parsed = JSON.parse(storedUser) as LocalUser;
+
+      setUser({
+        id: Number(parsed.id),
+        email: parsed.email,
+        phone: parsed.phone,
+        role: parsed.role,
+        permissions: parsed.permissions ?? [],
+      });
+    } catch (error) {
+      console.error("READ USER ERROR:", error);
+      setUser(null);
+    }
+  }, []);
 
   const selectedDirection = directionOptions[selectedIndex];
   const amountNumber = Number(amount) || 0;
@@ -96,6 +144,11 @@ export default function Home() {
   }).format(receiveAmount);
 
   async function handleCreateOrder() {
+    if (!user) {
+      setMessage("Для создания заявки нужно войти в аккаунт");
+      return;
+    }
+
     if (amountNumber <= 0) {
       setMessage("Введите корректную сумму");
       return;
@@ -109,15 +162,14 @@ export default function Home() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-user": JSON.stringify(user),
         },
         body: JSON.stringify({
-          userId: 1,
+          userId: user.id,
           giveCurrency: selectedDirection.fromCurrency,
           receiveCurrency: selectedDirection.toCurrency,
           giveAmount: amountNumber,
-          receiveAmount,
-          rate: selectedDirection.rate,
-          feePercent: selectedDirection.feePercent,
+          comment: "",
         }),
       });
 
@@ -165,19 +217,30 @@ export default function Home() {
               RU | EN | TR
             </div>
 
-            <Link
-              href="/login"
-              className="rounded-xl bg-white/10 px-4 py-2 text-sm font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-white/20"
-            >
-              Войти
-            </Link>
+            {user ? (
+              <Link
+                href="/dashboard"
+                className="rounded-xl bg-white/10 px-4 py-2 text-sm font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-white/20"
+              >
+                Кабинет
+              </Link>
+            ) : (
+              <Link
+                href="/login"
+                className="rounded-xl bg-white/10 px-4 py-2 text-sm font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-white/20"
+              >
+                Войти
+              </Link>
+            )}
 
-            <Link
-              href="/register"
-              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-blue-500"
-            >
-              Регистрация
-            </Link>
+            {!user && (
+              <Link
+                href="/register"
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-blue-500"
+              >
+                Регистрация
+              </Link>
+            )}
           </div>
         </div>
       </header>
@@ -201,17 +264,17 @@ export default function Home() {
 
           <div className="flex flex-col gap-4 sm:flex-row">
             <Link
-              href="/register"
+              href={user ? "/dashboard" : "/register"}
               className="rounded-2xl bg-blue-600 px-6 py-3 text-center text-lg font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-blue-500 active:scale-[0.98]"
             >
-              Создать заявку
+              {user ? "Перейти в кабинет" : "Создать аккаунт"}
             </Link>
 
             <Link
-              href="/login"
+              href={user ? "/dashboard" : "/login"}
               className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 text-center text-lg font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-white/10 active:scale-[0.98]"
             >
-              Войти в кабинет
+              {user ? "Мои заявки" : "Войти в кабинет"}
             </Link>
           </div>
         </div>
@@ -308,7 +371,11 @@ export default function Home() {
               disabled={isSubmitting || amountNumber <= 0}
               className="block w-full rounded-2xl bg-blue-600 px-6 py-3 text-center text-lg font-medium transition-all duration-300 hover:scale-[1.03] hover:bg-blue-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? "Создание заявки..." : "Создать заявку"}
+              {isSubmitting
+                ? "Создание заявки..."
+                : user
+                ? "Создать заявку"
+                : "Войдите, чтобы создать заявку"}
             </button>
 
             {message && <p className="text-sm text-gray-300">{message}</p>}

@@ -1,31 +1,66 @@
 import { NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import { prisma } from "../../../lib/prisma";
 
-function parsePermissions(value: string | null) {
-  try {
-    return JSON.parse(value || "[]");
-  } catch {
-    return [];
+function parsePermissions(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
   }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === "string");
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function sanitizeUser(user: {
+  id: number;
+  email: string;
+  phone: string;
+  role: string;
+  permissions: unknown;
+}) {
+  return {
+    id: user.id,
+    email: user.email,
+    phone: user.phone,
+    role: user.role,
+    permissions: parsePermissions(user.permissions),
+  };
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    if (!body.email || !body.password) {
+    const login = String(body.email ?? body.login ?? "").trim().toLowerCase();
+    const password = String(body.password ?? "");
+
+    if (!login || !password) {
       return NextResponse.json(
         {
           success: false,
-          message: "Не заполнены email или пароль",
+          message: "Введите email и пароль",
         },
         { status: 400 }
       );
     }
 
-    const user = await prisma.user.findUnique({
+    const user = await prisma.user.findFirst({
       where: {
-        email: body.email,
+        OR: [
+          { email: login },
+          { phone: login },
+        ],
       },
     });
 
@@ -39,7 +74,9 @@ export async function POST(req: Request) {
       );
     }
 
-    if (user.password !== body.password) {
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
       return NextResponse.json(
         {
           success: false,
@@ -51,13 +88,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        permissions: parsePermissions(user.permissions),
-      },
+      user: sanitizeUser(user),
     });
   } catch (error) {
     console.error("LOGIN ERROR:", error);
@@ -65,7 +96,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         success: false,
-        message: "Ошибка сервера",
+        message: "Ошибка входа",
       },
       { status: 500 }
     );

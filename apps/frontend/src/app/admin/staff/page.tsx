@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthGuard } from "../../../lib/use-auth-guard";
 
@@ -9,7 +9,7 @@ type User = {
   email: string;
   phone: string;
   role: string;
-  permissions: string[];
+  permissions: string[] | string;
 };
 
 const availablePermissions = [
@@ -23,10 +23,28 @@ const availablePermissions = [
   { key: "manage_staff", label: "Управление сотрудниками" },
 ];
 
+function normalizePermissions(value: string[] | string | undefined): string[] {
+  if (Array.isArray(value)) return value;
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
 export default function StaffPage() {
   const router = useRouter();
-  const { user: currentUser, isChecking } = useAuthGuard({
-    allowedRoles: ["owner"],
+
+  const { user: currentUser, isChecking, isOwner, hasPermission } = useAuthGuard({
+    allowedRoles: ["owner", "employee"],
+    requiredPermissions: ["manage_staff"],
+    requireAllPermissions: false,
     redirectIfNoUser: "/login",
     redirectIfForbidden: "/dashboard",
   });
@@ -44,13 +62,33 @@ export default function StaffPage() {
   const [deleteLoadingId, setDeleteLoadingId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
 
-  const loadUsers = async (ownerId: number) => {
+  const canManageStaff = isOwner || hasPermission("manage_staff");
+
+  const loadUsers = async () => {
+    if (!currentUser) return;
+
     try {
-      const res = await fetch(`/api/staff?userId=${ownerId}`);
+      setMessage("");
+
+      const res = await fetch(`/api/staff?userId=${currentUser.id}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user": JSON.stringify(currentUser),
+        },
+      });
+
       const data = await res.json();
 
       if (data.success) {
-        setUsers(data.users);
+        const normalizedUsers = Array.isArray(data.users)
+          ? data.users.map((item: User) => ({
+              ...item,
+              permissions: normalizePermissions(item.permissions),
+            }))
+          : [];
+
+        setUsers(normalizedUsers);
       } else {
         setMessage(data.message || "Ошибка загрузки сотрудников");
       }
@@ -62,10 +100,11 @@ export default function StaffPage() {
     }
   };
 
-  useMemo(() => {
+  useEffect(() => {
     if (currentUser && !isLoaded) {
-      loadUsers(currentUser.id);
+      loadUsers();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, isLoaded]);
 
   const owner = useMemo(
@@ -91,9 +130,11 @@ export default function StaffPage() {
       prev.map((item) => {
         if (item.id !== userId) return item;
 
-        const nextPermissions = item.permissions.includes(perm)
-          ? item.permissions.filter((p) => p !== perm)
-          : [...item.permissions, perm];
+        const currentPermissions = normalizePermissions(item.permissions);
+
+        const nextPermissions = currentPermissions.includes(perm)
+          ? currentPermissions.filter((p) => p !== perm)
+          : [...currentPermissions, perm];
 
         return {
           ...item,
@@ -105,6 +146,11 @@ export default function StaffPage() {
 
   const createEmployee = async () => {
     if (!currentUser) return;
+
+    if (!canManageStaff) {
+      setMessage("Нет прав на создание сотрудников");
+      return;
+    }
 
     if (!email || !phone || !password) {
       setMessage("Заполните все поля");
@@ -119,6 +165,7 @@ export default function StaffPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-user": JSON.stringify(currentUser),
         },
         body: JSON.stringify({
           userId: currentUser.id,
@@ -141,7 +188,7 @@ export default function StaffPage() {
       setPassword("");
       setSelectedPermissions([]);
       setMessage("Сотрудник создан ✅");
-      await loadUsers(currentUser.id);
+      await loadUsers();
     } catch (error) {
       console.error("CREATE EMPLOYEE ERROR:", error);
       setMessage("Ошибка создания сотрудника");
@@ -153,6 +200,11 @@ export default function StaffPage() {
   const savePermissions = async (targetUser: User) => {
     if (!currentUser) return;
 
+    if (!canManageStaff) {
+      alert("Нет прав на изменение сотрудников");
+      return;
+    }
+
     try {
       setSavePermissionsId(targetUser.id);
 
@@ -160,11 +212,12 @@ export default function StaffPage() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
+          "x-user": JSON.stringify(currentUser),
         },
         body: JSON.stringify({
           ownerId: currentUser.id,
           userId: targetUser.id,
-          permissions: targetUser.permissions,
+          permissions: normalizePermissions(targetUser.permissions),
         }),
       });
 
@@ -175,7 +228,7 @@ export default function StaffPage() {
         return;
       }
 
-      await loadUsers(currentUser.id);
+      await loadUsers();
       alert("Права обновлены ✅");
     } catch (error) {
       console.error("SAVE PERMISSIONS ERROR:", error);
@@ -188,6 +241,11 @@ export default function StaffPage() {
   const deleteUser = async (targetUserId: number) => {
     if (!currentUser) return;
 
+    if (!canManageStaff) {
+      alert("Нет прав на удаление сотрудников");
+      return;
+    }
+
     const confirmed = window.confirm("Удалить сотрудника?");
     if (!confirmed) return;
 
@@ -198,6 +256,10 @@ export default function StaffPage() {
         `/api/staff?userId=${targetUserId}&ownerId=${currentUser.id}`,
         {
           method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            "x-user": JSON.stringify(currentUser),
+          },
         }
       );
 
@@ -208,7 +270,7 @@ export default function StaffPage() {
         return;
       }
 
-      await loadUsers(currentUser.id);
+      await loadUsers();
     } catch (error) {
       console.error("DELETE USER ERROR:", error);
       alert("Ошибка удаления");
@@ -229,6 +291,25 @@ export default function StaffPage() {
     return null;
   }
 
+  if (!canManageStaff) {
+    return (
+      <main className="min-h-screen bg-[#020b22] flex items-center justify-center text-white px-6">
+        <div className="max-w-md rounded-3xl border border-red-500/20 bg-red-500/10 p-8 text-center">
+          <h1 className="text-2xl font-bold">Нет доступа</h1>
+          <p className="mt-3 text-white/70">
+            У вас нет прав для управления сотрудниками.
+          </p>
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="mt-6 rounded-2xl bg-blue-600 px-5 py-3 font-medium transition hover:bg-blue-500"
+          >
+            Вернуться в кабинет
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#020b22] p-6 text-white md:p-10">
       <div className="mx-auto max-w-6xl">
@@ -241,10 +322,10 @@ export default function StaffPage() {
           </div>
 
           <button
-            onClick={() => router.push("/dashboard")}
+            onClick={() => router.push("/admin")}
             className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium backdrop-blur-xl transition hover:bg-white/10"
           >
-            Назад в кабинет
+            Назад в админку
           </button>
         </div>
 
@@ -346,8 +427,10 @@ export default function StaffPage() {
           ) : (
             <div className="space-y-5">
               {employees.map((employee) => {
+                const employeePermissions = normalizePermissions(employee.permissions);
+
                 const activePermissions = availablePermissions.filter((permission) =>
-                  employee.permissions.includes(permission.key)
+                  employeePermissions.includes(permission.key)
                 );
 
                 return (
@@ -404,25 +487,29 @@ export default function StaffPage() {
                       <p className="mb-3 text-sm text-white/70">Настройка прав</p>
 
                       <div className="grid gap-3 md:grid-cols-2">
-                        {availablePermissions.map((permission) => (
-                          <label
-                            key={permission.key}
-                            className={`flex items-center gap-3 rounded-2xl border p-3 transition ${
-                              employee.permissions.includes(permission.key)
-                                ? "border-green-500/30 bg-green-500/10 shadow-[0_10px_30px_rgba(34,197,94,0.10)]"
-                                : "border-white/10 bg-[#0b1628] hover:bg-white/5"
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={employee.permissions.includes(permission.key)}
-                              onChange={() =>
-                                toggleUserPermission(employee.id, permission.key)
-                              }
-                            />
-                            <span className="text-sm">{permission.label}</span>
-                          </label>
-                        ))}
+                        {availablePermissions.map((permission) => {
+                          const checked = employeePermissions.includes(permission.key);
+
+                          return (
+                            <label
+                              key={permission.key}
+                              className={`flex items-center gap-3 rounded-2xl border p-3 transition ${
+                                checked
+                                  ? "border-green-500/30 bg-green-500/10 shadow-[0_10px_30px_rgba(34,197,94,0.10)]"
+                                  : "border-white/10 bg-[#0b1628] hover:bg-white/5"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() =>
+                                  toggleUserPermission(employee.id, permission.key)
+                                }
+                              />
+                              <span className="text-sm">{permission.label}</span>
+                            </label>
+                          );
+                        })}
                       </div>
 
                       <div className="mt-4">

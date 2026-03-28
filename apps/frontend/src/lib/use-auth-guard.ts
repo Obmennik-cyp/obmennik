@@ -2,22 +2,28 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import {
+  normalizePermissions,
+  hasPermission as checkPermission,
+  type Permission,
+  type Role,
+} from "@/lib/auth/permissions";
 
-export type GuardRole = "owner" | "employee" | "client";
+export type GuardRole = Role;
 
 export type GuardUser = {
   id: number;
   email: string;
   phone: string;
   role: GuardRole;
-  permissions?: string[];
+  permissions?: Permission[] | string;
 };
 
 type UseAuthGuardOptions = {
   redirectIfNoUser?: string;
   redirectIfForbidden?: string;
   allowedRoles?: GuardRole[];
-  requiredPermissions?: string[];
+  requiredPermissions?: Permission[];
   requireAllPermissions?: boolean;
 };
 
@@ -27,7 +33,6 @@ export function useAuthGuard(options?: UseAuthGuardOptions) {
   const [user, setUser] = useState<GuardUser | null>(null);
   const [isChecking, setIsChecking] = useState(true);
 
-  // ❗ фикс: сохраняем опции один раз
   const config = useMemo(() => {
     return {
       redirectIfNoUser: options?.redirectIfNoUser ?? "/login",
@@ -43,6 +48,7 @@ export function useAuthGuard(options?: UseAuthGuardOptions) {
     const stored = localStorage.getItem("user");
 
     if (!stored) {
+      setIsChecking(false);
       router.push(config.redirectIfNoUser);
       return;
     }
@@ -51,34 +57,46 @@ export function useAuthGuard(options?: UseAuthGuardOptions) {
       const parsedUser = JSON.parse(stored) as GuardUser;
 
       const normalizedUser: GuardUser = {
-        id: parsedUser.id,
+        id: Number(parsedUser.id),
         email: parsedUser.email,
         phone: parsedUser.phone,
         role: parsedUser.role,
-        permissions: parsedUser.permissions ?? [],
+        permissions: normalizePermissions(parsedUser.permissions),
       };
-
-      const isOwner = normalizedUser.role === "owner";
 
       const hasAllowedRole =
         config.allowedRoles.length === 0 ||
         config.allowedRoles.includes(normalizedUser.role);
 
-      let hasPermissions = true;
+      let hasRequiredPermissions = true;
 
-      if (!isOwner && config.requiredPermissions.length > 0) {
+      if (
+        normalizedUser.role !== "owner" &&
+        config.requiredPermissions.length > 0
+      ) {
         if (config.requireAllPermissions) {
-          hasPermissions = config.requiredPermissions.every((p) =>
-            normalizedUser.permissions?.includes(p)
+          hasRequiredPermissions = config.requiredPermissions.every(
+            (permission) =>
+              checkPermission(
+                normalizedUser.role,
+                normalizedUser.permissions,
+                permission
+              )
           );
         } else {
-          hasPermissions = config.requiredPermissions.some((p) =>
-            normalizedUser.permissions?.includes(p)
+          hasRequiredPermissions = config.requiredPermissions.some(
+            (permission) =>
+              checkPermission(
+                normalizedUser.role,
+                normalizedUser.permissions,
+                permission
+              )
           );
         }
       }
 
-      if (!hasAllowedRole || !hasPermissions) {
+      if (!hasAllowedRole || !hasRequiredPermissions) {
+        setIsChecking(false);
         router.push(config.redirectIfForbidden);
         return;
       }
@@ -88,18 +106,37 @@ export function useAuthGuard(options?: UseAuthGuardOptions) {
       console.error("AUTH GUARD ERROR:", error);
       localStorage.removeItem("user");
       router.push(config.redirectIfNoUser);
-      return;
     } finally {
       setIsChecking(false);
     }
   }, [router, config]);
 
-  const permissions = useMemo(() => user?.permissions ?? [], [user]);
+  const permissions = useMemo(
+    () => normalizePermissions(user?.permissions),
+    [user]
+  );
 
-  const hasPermission = (permission: string) => {
+  const hasPermission = (permission: Permission) => {
+    if (!user) return false;
+    return checkPermission(user.role, permissions, permission);
+  };
+
+  const hasAnyPermission = (requiredPermissions: Permission[]) => {
     if (!user) return false;
     if (user.role === "owner") return true;
-    return permissions.includes(permission);
+
+    return requiredPermissions.some((permission) =>
+      checkPermission(user.role, permissions, permission)
+    );
+  };
+
+  const hasAllPermissions = (requiredPermissions: Permission[]) => {
+    if (!user) return false;
+    if (user.role === "owner") return true;
+
+    return requiredPermissions.every((permission) =>
+      checkPermission(user.role, permissions, permission)
+    );
   };
 
   return {
@@ -110,5 +147,7 @@ export function useAuthGuard(options?: UseAuthGuardOptions) {
     isEmployee: user?.role === "employee",
     isClient: user?.role === "client",
     hasPermission,
+    hasAnyPermission,
+    hasAllPermissions,
   };
 }

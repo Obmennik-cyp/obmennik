@@ -6,13 +6,15 @@ import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import {
   hasPermission,
+  hasAnyPermission,
+  hasAllPermissions,
   normalizePermissions,
   type Permission,
   type Role,
 } from "@/lib/auth/permissions";
 
 export type CurrentUserAccess = {
-  id: string;
+  id: number;
   email: string;
   name: string | null;
   role: Role;
@@ -57,7 +59,7 @@ export async function getCurrentUserAccess(): Promise<CurrentUserAccess | null> 
   return {
     id: user.id,
     email: user.email,
-    name: user.name,
+    name: user.name ?? null,
     role: user.role as Role,
     isActive: user.isActive,
     permissions: normalizePermissions(user.permissions),
@@ -74,7 +76,9 @@ export async function requireAuth(): Promise<CurrentUserAccess> {
   return user;
 }
 
-export async function requireRole(allowedRoles: Role[]): Promise<CurrentUserAccess> {
+export async function requireRole(
+  allowedRoles: Role[]
+): Promise<CurrentUserAccess> {
   const user = await requireAuth();
 
   if (!allowedRoles.includes(user.role)) {
@@ -96,6 +100,30 @@ export async function requirePermission(
   return user;
 }
 
+export async function requireAnyPermission(
+  permissions: Permission[]
+): Promise<CurrentUserAccess> {
+  const user = await requireAuth();
+
+  if (!hasAnyPermission(user.role, user.permissions, permissions)) {
+    throw new AuthError("FORBIDDEN", 403);
+  }
+
+  return user;
+}
+
+export async function requireAllPermissions(
+  permissions: Permission[]
+): Promise<CurrentUserAccess> {
+  const user = await requireAuth();
+
+  if (!hasAllPermissions(user.role, user.permissions, permissions)) {
+    throw new AuthError("FORBIDDEN", 403);
+  }
+
+  return user;
+}
+
 export async function requireAdminPageAccess(permission?: Permission) {
   const user = await requireAuth();
 
@@ -104,6 +132,38 @@ export async function requireAdminPageAccess(permission?: Permission) {
   }
 
   if (permission && !hasPermission(user.role, user.permissions, permission)) {
+    redirect("/admin");
+  }
+
+  return user;
+}
+
+export async function requireAdminPageAnyPermission(
+  permissions: Permission[]
+) {
+  const user = await requireAuth();
+
+  if (user.role === "client") {
+    redirect("/");
+  }
+
+  if (!hasAnyPermission(user.role, user.permissions, permissions)) {
+    redirect("/admin");
+  }
+
+  return user;
+}
+
+export async function requireAdminPageAllPermissions(
+  permissions: Permission[]
+) {
+  const user = await requireAuth();
+
+  if (user.role === "client") {
+    redirect("/");
+  }
+
+  if (!hasAllPermissions(user.role, user.permissions, permissions)) {
     redirect("/admin");
   }
 

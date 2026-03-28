@@ -1,6 +1,23 @@
 import { NextResponse } from "next/server";
 import { prisma } from "../../../lib/prisma";
 
+type DbUser = {
+  id: number;
+  email: string;
+  phone: string;
+  role: string;
+  permissions: unknown;
+};
+
+const allowedStatuses = [
+  "PENDING",
+  "IN_PROGRESS",
+  "COMPLETED",
+  "CANCELLED",
+] as const;
+
+type AllowedStatus = (typeof allowedStatuses)[number];
+
 function getYearSuffix() {
   return new Date().getFullYear().toString().slice(-2);
 }
@@ -35,34 +52,6 @@ async function generateOrderNumber() {
   return `${prefix}${paddedSequence}`;
 }
 
-function parsePermissions(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === "string");
-  }
-
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      if (Array.isArray(parsed)) {
-        return parsed.filter((item): item is string => typeof item === "string");
-      }
-    } catch {
-      return [];
-    }
-  }
-
-  return [];
-}
-
-function hasPermission(user: any, permission: string) {
-  if (!user) return false;
-  if (user.role === "owner") return true;
-
-  const permissions = parsePermissions(user.permissions);
-  return permissions.includes(permission);
-}
-
-// Получение пользователя из header x-user
 function getUserFromHeaders(req: Request) {
   const header = req.headers.get("x-user");
 
@@ -77,7 +66,34 @@ function getUserFromHeaders(req: Request) {
   }
 }
 
-// Получение пользователя из body/query по id
+function parsePermissions(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === "string");
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function hasPermission(user: DbUser | null, permission: string) {
+  if (!user) return false;
+  if (user.role === "owner") return true;
+
+  const permissions = parsePermissions(user.permissions);
+  return permissions.includes(permission);
+}
+
 async function getUserById(userId: number) {
   if (!userId || Number.isNaN(userId)) return null;
 
@@ -86,21 +102,36 @@ async function getUserById(userId: number) {
   });
 }
 
-// Универсально:
-// 1) сперва x-user
-// 2) потом userId из body
-// 3) потом userId из query
-async function resolveUser(req: Request, body?: any) {
+async function getTrustedUserFromHeader(req: Request) {
   const headerUser = getUserFromHeaders(req);
-  if (headerUser) return headerUser;
 
-  const bodyUserId = Number(body?.userId);
+  if (!headerUser) return null;
+
+  const headerUserId = Number(headerUser.id);
+
+  if (!headerUserId || Number.isNaN(headerUserId)) {
+    return null;
+  }
+
+  return await getUserById(headerUserId);
+}
+
+async function resolveUser(req: Request, body?: any) {
+  const trustedHeaderUser = await getTrustedUserFromHeader(req);
+  if (trustedHeaderUser) return trustedHeaderUser;
+
+  const bodyUserId = Number(body?.userId ?? body?.ownerId ?? body?.currentUserId);
   if (bodyUserId) {
     return await getUserById(bodyUserId);
   }
 
   const { searchParams } = new URL(req.url);
-  const queryUserId = Number(searchParams.get("userId"));
+  const queryUserId = Number(
+    searchParams.get("userId") ??
+      searchParams.get("ownerId") ??
+      searchParams.get("currentUserId")
+  );
+
   if (queryUserId) {
     return await getUserById(queryUserId);
   }
@@ -108,14 +139,16 @@ async function resolveUser(req: Request, body?: any) {
   return null;
 }
 
-const allowedStatuses = [
-  "PENDING",
-  "IN_PROGRESS",
-  "COMPLETED",
-  "CANCELLED",
-] as const;
+function normalizeCurrency(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toUpperCase();
+}
 
-type AllowedStatus = (typeof allowedStatuses)[number];
+function normalizeComment(value: unknown) {
+  const comment = String(value ?? "").trim();
+  return comment.length > 0 ? comment : null;
+}
 
 // ===================== GET =====================
 export async function GET(req: Request) {
@@ -155,7 +188,10 @@ export async function GET(req: Request) {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json({ success: true, orders });
+    return NextResponse.json({
+      success: true,
+      orders,
+    });
   } catch (error) {
     console.error("GET ORDER ERROR:", error);
 
@@ -191,15 +227,25 @@ export async function POST(req: Request) {
       );
     }
 
-    const giveCurrency = String(body.giveCurrency || "").trim().toUpperCase();
-    const receiveCurrency = String(body.receiveCurrency || "")
-      .trim()
-      .toUpperCase();
+    const giveCurrency = normalizeCurrency(body.giveCurrency);
+    const receiveCurrency = normalizeCurrency(body.receiveCurrency);
     const giveAmount = Number(body.giveAmount);
 
-    if (!giveCurrency || !receiveCurrency || !Number.isFinite(giveAmount) || giveAmount <= 0) {
+    if (
+      !giveCurrency ||
+      !receiveCurrency ||
+      !Number.isFinite(giveAmount) ||
+      giveAmount <= 0
+    ) {
       return NextResponse.json(
         { success: false, message: "Некорректные данные заявки" },
+        { status: 400 }
+      );
+    }
+
+    if (giveCurrency === receiveCurrency) {
+      return NextResponse.json(
+        { success: false, message: "Валюты заявки должны отличаться" },
         { status: 400 }
       );
     }
@@ -224,9 +270,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const receiveAmount =
-      giveAmount * rate * (1 - feePercent / 100);
+    if (!Number.isFinite(feePercent) || feePercent < 0) {
+      return NextResponse.json(
+        { success: false, message: "Некорректная комиссия" },
+        { status: 400 }
+      );
+    }
 
+    const receiveAmount = giveAmount * rate * (1 - feePercent / 100);
     const orderNumber = await generateOrderNumber();
 
     const order = await prisma.order.create({
@@ -240,7 +291,7 @@ export async function POST(req: Request) {
         rate,
         feePercent,
         status: "PENDING",
-        comment: body.comment ? String(body.comment) : null,
+        comment: normalizeComment(body.comment),
       },
       include: {
         user: {
@@ -262,7 +313,10 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json({ success: true, order });
+    return NextResponse.json({
+      success: true,
+      order,
+    });
   } catch (error) {
     console.error("POST ORDER ERROR:", error);
 
@@ -347,46 +401,113 @@ export async function PUT(req: Request) {
     let nextGiveAmount = order.giveAmount;
     let nextRate = order.rate;
     let nextFeePercent = order.feePercent;
+    let nextEmployeeId = order.employeeId;
+
+    if (
+      user.role === "employee" &&
+      order.employeeId &&
+      order.employeeId !== Number(user.id)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Эта заявка уже взята другим сотрудником",
+        },
+        { status: 403 }
+      );
+    }
 
     if (body.giveCurrency !== undefined) {
-      nextGiveCurrency = String(body.giveCurrency).trim().toUpperCase();
+      nextGiveCurrency = normalizeCurrency(body.giveCurrency);
     }
 
     if (body.receiveCurrency !== undefined) {
-      nextReceiveCurrency = String(body.receiveCurrency).trim().toUpperCase();
+      nextReceiveCurrency = normalizeCurrency(body.receiveCurrency);
+    }
+
+    if (nextGiveCurrency === nextReceiveCurrency) {
+      return NextResponse.json(
+        { success: false, message: "Валюты заявки должны отличаться" },
+        { status: 400 }
+      );
     }
 
     if (body.giveAmount !== undefined) {
       const parsedGiveAmount = Number(body.giveAmount);
+
       if (!Number.isFinite(parsedGiveAmount) || parsedGiveAmount <= 0) {
         return NextResponse.json(
           { success: false, message: "Некорректная сумма заявки" },
           { status: 400 }
         );
       }
+
       nextGiveAmount = parsedGiveAmount;
     }
 
     if (body.rate !== undefined) {
       const parsedRate = Number(body.rate);
+
       if (!Number.isFinite(parsedRate) || parsedRate <= 0) {
         return NextResponse.json(
           { success: false, message: "Некорректный курс" },
           { status: 400 }
         );
       }
+
       nextRate = parsedRate;
     }
 
     if (body.feePercent !== undefined) {
       const parsedFeePercent = Number(body.feePercent);
+
       if (!Number.isFinite(parsedFeePercent) || parsedFeePercent < 0) {
         return NextResponse.json(
           { success: false, message: "Некорректная комиссия" },
           { status: 400 }
         );
       }
+
       nextFeePercent = parsedFeePercent;
+    }
+
+    const takeInWork = Boolean(body.takeInWork);
+
+    if (takeInWork) {
+      if (user.role !== "employee" && user.role !== "owner") {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Только сотрудник или владелец может взять заявку в работу",
+          },
+          { status: 403 }
+        );
+      }
+
+      if (
+        order.employeeId &&
+        order.employeeId !== Number(user.id) &&
+        user.role !== "owner"
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Эта заявка уже взята другим сотрудником",
+          },
+          { status: 403 }
+        );
+      }
+
+      nextEmployeeId = Number(user.id);
+      nextStatus = "IN_PROGRESS";
+    }
+
+    if (
+      user.role === "employee" &&
+      !nextEmployeeId &&
+      nextStatus === "IN_PROGRESS"
+    ) {
+      nextEmployeeId = Number(user.id);
     }
 
     const nextReceiveAmount =
@@ -402,13 +523,10 @@ export async function PUT(req: Request) {
         rate: nextRate,
         feePercent: nextFeePercent,
         status: nextStatus,
-        employeeId:
-          user.role === "employee" && nextStatus !== "PENDING"
-            ? Number(user.id)
-            : order.employeeId,
+        employeeId: nextEmployeeId,
         comment:
           body.comment !== undefined
-            ? String(body.comment || "")
+            ? normalizeComment(body.comment)
             : order.comment,
       },
       include: {
@@ -431,7 +549,10 @@ export async function PUT(req: Request) {
       },
     });
 
-    return NextResponse.json({ success: true, order: updatedOrder });
+    return NextResponse.json({
+      success: true,
+      order: updatedOrder,
+    });
   } catch (error) {
     console.error("PUT ORDER ERROR:", error);
 
@@ -489,7 +610,9 @@ export async function DELETE(req: Request) {
       where: { id: orderId },
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+    });
   } catch (error) {
     console.error("DELETE ORDER ERROR:", error);
 
